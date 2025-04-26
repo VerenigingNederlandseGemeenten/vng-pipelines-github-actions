@@ -1,0 +1,102 @@
+name: dotnet-publish-nuget
+description: Push each separate packable .csproj file to either Azure or NuGet as a NuGet package
+inputs:
+  software-version:
+    description: The version of the software (contract, or API, or whatever)
+    required: true
+  dotnet-version:
+    description: Specify which .NET version to use
+    required: false
+    default: "9.x"
+  project-folder:
+    description: Provide project location (full path)
+    required: true
+  azure-api-key:
+    description: Azure API key
+    required: true
+  azure-source:
+    description: Name of the Azure source
+    required: true
+  azure-feed:
+    description: Link of the Azure feed
+    required: true
+  folder-prefix:
+    description: Use if you want to use a folder prefix (ex. 'Assemblies/' so that test projects are skipped)
+    required: false
+    default: ""
+  nuget-api-key:
+    description: NuGet API key
+    required: true
+  nuget-api-source:
+    description: NuGet API source
+    required: false
+    default: "https://api.nuget.org/v3/index.json"
+  nuget:
+    description: Push to nuget?
+    required: false
+    default: "false"
+  add-source:
+    description: Add the source within this action or not (set to false in case a workflow also needs to do this)
+    default: "true"
+    required: false
+runs:
+  using: "composite"
+  steps:
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+    - name: Install xmllint
+      shell: bash
+      run: |
+        if command -v apt-get &> /dev/null; then
+          sudo apt-get update && sudo apt-get install -y libxml2-utils
+        elif command -v yum &> /dev/null; then
+          sudo yum install -y libxml2
+        fi
+    - if: ${{ (inputs.nuget == 'false') && (inputs.add-source == 'true') }}
+      name: Add NuGet Source
+      shell: bash
+      run: dotnet nuget add source ${{ inputs.azure-feed }} --name ${{inputs.azure-source}} --username az --password ${{ inputs.azure-api-key }} --store-password-in-clear-text      
+    - if: inputs.nuget == 'true'
+      name: "Build, pack and push to NuGet"
+      shell: bash
+      working-directory: ${{inputs.project-folder}}
+      run: |
+        shopt -s globstar
+        for file in ${{inputs.folder-prefix}}**/*.csproj; do
+          # Extract the value of the IsPackable property from the .csproj file
+          IS_PACKABLE=$(xmllint --xpath "string(//IsPackable)" "$file" 2>/dev/null)
+          echo "File: $file | IsPackable value: '$IS_PACKABLE'"
+
+          # Check if IsPackable is explicitly set to false
+          if [ "$IS_PACKABLE" != "false" ]; then
+            echo "Processing $file"
+            dotnet build "$file" --configuration Release
+            dotnet pack "$file" -p:PackageVersion=${{inputs.software-version}} -c Release --output .
+            dotnet nuget push -k ${{ inputs.nuget-api-key }} "$(basename "${file%.*}").${{inputs.software-version}}.nupkg"
+          else
+            echo "Skipping $file as IsPackable is set to false"
+          fi
+        done
+    - if: inputs.nuget == 'false'
+      name: "Build, pack and push to Azure"
+      shell: bash
+      working-directory: ${{inputs.project-folder}}
+      run: |
+        shopt -s globstar
+        for file in ${{inputs.folder-prefix}}**/*.csproj; do
+          # Extract the value of the IsPackable property from the .csproj file
+          IS_PACKABLE=$(xmllint --xpath "string(//IsPackable)" "$file" 2>/dev/null)
+          echo "File: $file | IsPackable value: '$IS_PACKABLE'"
+
+          # Check if IsPackable is explicitly set to false
+          if [ "$IS_PACKABLE" != "false" ]; then
+            echo "Processing $file"
+            dotnet build "$file" --configuration Release
+            dotnet pack "$file" -p:PackageVersion=${{inputs.software-version}} -c Release --output .
+            dotnet nuget push -s ${{ inputs.azure-source }} --api-key AzureArtifacts "$(basename "${file%.*}").${{inputs.software-version}}.nupkg" --skip-duplicate
+          else
+            echo "Skipping $file as IsPackable is set to false"
+          fi
+        done

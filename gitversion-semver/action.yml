@@ -1,0 +1,47 @@
+name: GitVersion Semantic Version
+description: Determine a semantic version for a repository
+outputs:
+  major:
+    description: "Major version"
+    value: ${{ steps.semver.outputs.major }}
+  minor:
+    description: "Minor version"
+    value: ${{ steps.semver.outputs.minor }}
+  patch:
+    description: "Patch version"
+    value: ${{ steps.semver.outputs.patch }}
+  semantic-version:
+    description: "Semantic version"
+    value: ${{ steps.semver.outputs.version }}
+runs:
+  using: "composite"
+  steps:
+    - name: Install GitVersion
+      uses: gittools/actions/gitversion/setup@v0.9.15
+      with:
+        versionSpec: "5.12.0"
+    - name: Execute GitVersion
+      id: gitversion
+      uses: gittools/actions/gitversion/execute@v0.9.15
+      with:
+        targetPath: "workflow/repository"
+        useConfigFile: true
+        configFilePath: "workflow/repository/GitVersion.yaml"
+    - name: Set GitVersion version
+      id: semver
+      shell: bash
+      run: |
+        if [[ "${{ steps.gitversion.outputs.branchName }}" == "master" ]];
+        then
+          version=$(echo ${{ steps.gitversion.outputs.major }}.${{ steps.gitversion.outputs.minor }}.${{ steps.gitversion.outputs.patch }})
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "major=${{ steps.gitversion.outputs.major }}" >> $GITHUB_OUTPUT
+          echo "minor=${{ steps.gitversion.outputs.minor }}" >> $GITHUB_OUTPUT
+          echo "patch=${{ steps.gitversion.outputs.patch }}" >> $GITHUB_OUTPUT
+        else
+          version=$(echo ${{ steps.gitversion.outputs.major }}.${{ steps.gitversion.outputs.minor }}.${{ steps.gitversion.outputs.patch }}-${{ steps.gitversion.outputs.branchName }}.${{ steps.gitversion.outputs.commitsSinceVersionSource }})
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "major=${{ steps.gitversion.outputs.major }}" >> $GITHUB_OUTPUT
+          echo "minor=${{ steps.gitversion.outputs.minor }}" >> $GITHUB_OUTPUT
+          echo "patch=${{ steps.gitversion.outputs.patch }}" >> $GITHUB_OUTPUT
+        fi

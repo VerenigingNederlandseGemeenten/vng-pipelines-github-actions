@@ -1,0 +1,32 @@
+name: .NET Test
+description: Test a .NET solution. Action expect the repository to be prepared as a workflow-artifact.
+inputs:
+  azure-api-key:
+    description: Azure API key
+    required: false
+    default: ""
+  azure-feed:
+    description: Azure feed
+    required: false
+    default: ""
+  azure-source:
+    description: Azure source link in case private NuGet packages need to be fetched
+    required: false
+    default: ""
+  configuration:
+    description: Select the configuration to run
+    required: false
+    default: Release
+  solution-path:
+    description: Specify the relative path to the .sln file
+    required: false
+    default: ""
+runs:
+  using: "composite"
+  steps:
+    - name: Add Azure feed
+      shell: bash
+      run: dotnet nuget add source ${{ inputs.azure-feed }} --name ${{inputs.azure-source}} --username az --password ${{ inputs.azure-api-key }} --store-password-in-clear-text
+    - name: .NET Test
+      shell: bash
+      run: dotnet test ./workflow/repository/${{inputs.solution-path}} -c ${{inputs.configuration}}

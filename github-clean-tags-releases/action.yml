@@ -1,0 +1,92 @@
+name: GitHub Clean Tags & Releases
+description: Clean up GitHub Tags & Releases based on the current build's semantic version.
+inputs:
+  keep:
+    description: "The number of releases to keep that are lower than or equal to the current semantic version"
+    required: false
+    default: "10"
+  semantic-version:
+    description: "The current semantic version (e.g., 2.1.5) of the master build"
+    required: true
+  token:
+    description: "The GitHub personal access token"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Fetch All Releases (with pagination)
+      id: get_releases
+      run: |
+        # Initialize the CSV file with headers
+        echo "tag_name,id,is_prerelease" > releases.csv
+
+        # Loop through pages until there are no more releases
+        PAGE=1
+        while true; do
+          RESPONSE=$(curl -s -H "Authorization: token ${{ inputs.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100&page=$PAGE")
+
+          # Break the loop if no releases are returned
+          if [ "$(echo "$RESPONSE" | jq '. | length')" -eq "0" ]; then
+            break
+          fi
+
+          # Append releases to the CSV, including prerelease status
+          echo "$RESPONSE" | jq -r '.[] | "\(.tag_name),\(.id),\(.prerelease)"' >> releases.csv
+
+          PAGE=$((PAGE + 1))
+        done
+      shell: bash
+
+    - name: Process Releases
+      id: process_releases
+      shell: bash
+      run: |
+        SEMVER="${{ inputs.semantic-version }}"
+        KEEP="${{ inputs.keep }}"
+
+        echo "Current version: $SEMVER"
+        echo "Keeping $KEEP non-prerelease versions"
+
+        # Create arrays for both prerelease and non-prerelease versions
+        declare -A PRERELEASE_MAP
+        declare -A NON_PRERELEASE_MAP
+
+        while IFS=',' read -r TAG ID IS_PRERELEASE; do
+          # Skip header line
+          if [ "$TAG" = "tag_name" ]; then continue; fi
+
+          # Use version comparison to check if the tag is older than or equal to SEMVER
+          if [[ $(echo -e "$TAG\n$SEMVER" | sort -V | tail -n1) == "$SEMVER" ]]; then
+            if [[ $TAG == *"-"* ]]; then
+              PRERELEASE_MAP[$TAG]=$ID
+            else
+              NON_PRERELEASE_MAP[$TAG]=$ID
+            fi
+          fi
+        done < releases.csv
+
+        # Delete all prereleases that are older than or equal to SEMVER
+        for TAG in "${!PRERELEASE_MAP[@]}"; do
+          ID=${PRERELEASE_MAP[$TAG]}
+          echo "Deleting prerelease: $TAG (ID: $ID)"
+          curl -s -X DELETE -H "Authorization: token ${{ inputs.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/$ID"
+          curl -s -X DELETE -H "Authorization: token ${{ inputs.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG"
+        done
+
+        # Sort non-prerelease versions and keep only the latest X
+        NON_PRERELEASE_SORTED=($(printf '%s\n' "${!NON_PRERELEASE_MAP[@]}" | sort -rV))
+
+        if [ ${#NON_PRERELEASE_SORTED[@]} -gt $KEEP ]; then
+          for ((i=KEEP; i<${#NON_PRERELEASE_SORTED[@]}; i++)); do
+            TAG=${NON_PRERELEASE_SORTED[$i]}
+            ID=${NON_PRERELEASE_MAP[$TAG]}
+            echo "Deleting old non-prerelease: $TAG (ID: $ID)"
+            curl -s -X DELETE -H "Authorization: token ${{ inputs.token }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$ID"
+            curl -s -X DELETE -H "Authorization: token ${{ inputs.token }}" \
+              "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG"
+          done
+        fi

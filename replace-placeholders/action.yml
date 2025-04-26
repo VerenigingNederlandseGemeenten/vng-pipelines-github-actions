@@ -1,0 +1,26 @@
+name: replace-placeholders
+description: Replace placeholders recursively within a directory
+inputs:
+  directory:
+    description: The directory to replace them in
+    required: false
+    default: "./"
+  replacements-in:
+    description: Replacement placeholders separated by a semicolon (;)
+    required: true
+  replacements-out:
+    description: Replacement values separated by a semicolon (;)
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Replace all within directory
+      shell: bash
+      run: |
+        cd ${{inputs.directory}}
+        IFS='~' read -ra SEARCH <<< "${{ inputs.replacements-in }}"
+        IFS='~' read -ra REPLACE <<< "${{ inputs.replacements-out }}"
+        for index in ${!SEARCH[*]}; do
+          echo "Replacing ${SEARCH[$index]} with ${REPLACE[$index]}"
+          grep -rl ${SEARCH[$index]} ./ | xargs sed -i s~${SEARCH[$index]}~${REPLACE[$index]}~g
+        done
