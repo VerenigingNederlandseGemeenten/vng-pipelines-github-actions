@@ -26,7 +26,7 @@ runs:
   steps:
     - name: Add Azure feed
       shell: bash
-      run: dotnet nuget add source ${{ inputs.azure-feed }} --name ${{inputs.azure-source}} --username az --password ${{ inputs.azure-api-key }} --store-password-in-clear-text
+      run: dotnet nuget add source ${{ inputs.azure-source }} --name ${{inputs.azure-feed}} --username az --password ${{ inputs.azure-api-key }} --store-password-in-clear-text
     - name: .NET Test
       shell: bash
       run: dotnet test ./workflow/repository/${{inputs.solution-path}} -c ${{inputs.configuration}}
